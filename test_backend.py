@@ -2,13 +2,23 @@
 Code review test for backend performance optimizations
 This test validates the optimizations without requiring dependencies
 """
+import os
+
+def get_file_path(filename):
+    """Get the absolute path for a file relative to this script."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 
 def test_backend_code_structure():
     """Verify that performance optimizations are present in the code"""
     print("Testing backend code structure for performance optimizations...")
     
-    with open('./Backend', 'r') as f:
-        backend_code = f.read()
+    backend_path = get_file_path('Backend')
+    try:
+        with open(backend_path, 'r') as f:
+            backend_code = f.read()
+    except (FileNotFoundError, PermissionError) as e:
+        print(f"   ❌ Error reading Backend file: {e}")
+        return False
     
     # Test 1: Check for lru_cache import
     print("\n1. Checking for caching imports...")
@@ -84,13 +94,19 @@ def test_backend_code_structure():
         print("   ℹ️  Hash algorithm not identified")
     
     print("\n✅ Backend code structure validation completed!")
+    return True
 
 def test_frontend_code_structure():
     """Verify that frontend performance optimizations are present"""
     print("\n\nTesting frontend code structure for performance optimizations...")
     
-    with open('./frontend/app.js', 'r') as f:
-        frontend_code = f.read()
+    app_js_path = get_file_path(os.path.join('frontend', 'app.js'))
+    try:
+        with open(app_js_path, 'r') as f:
+            frontend_code = f.read()
+    except (FileNotFoundError, PermissionError) as e:
+        print(f"   ❌ Error reading frontend/app.js file: {e}")
+        return False
     
     # Test 1: Check for Map-based lookup
     print("\n1. Checking for optimized anomaly marker lookup...")
@@ -120,8 +136,13 @@ def test_frontend_code_structure():
     
     # Check Frontend.html
     print("\n4. Checking Frontend.html...")
-    with open('./Frontend.html', 'r') as f:
-        html_code = f.read()
+    html_path = get_file_path('Frontend.html')
+    try:
+        with open(html_path, 'r') as f:
+            html_code = f.read()
+    except (FileNotFoundError, PermissionError) as e:
+        print(f"   ❌ Error reading Frontend.html file: {e}")
+        return False
     
     if 'src="frontend/app.js"' in html_code:
         print("   ✅ JavaScript properly separated into frontend/app.js")
@@ -134,10 +155,15 @@ def test_frontend_code_structure():
         print("   ✅ JavaScript code moved out of HTML file")
     
     print("\n✅ Frontend code structure validation completed!")
+    return True
 
 if __name__ == "__main__":
-    test_backend_code_structure()
-    test_frontend_code_structure()
+    backend_ok = test_backend_code_structure()
+    frontend_ok = test_frontend_code_structure()
+    
     print("\n\n" + "="*60)
-    print("ALL VALIDATION TESTS COMPLETED")
+    if backend_ok and frontend_ok:
+        print("ALL VALIDATION TESTS COMPLETED SUCCESSFULLY")
+    else:
+        print("SOME VALIDATION TESTS FAILED")
     print("="*60)
