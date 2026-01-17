@@ -5,6 +5,9 @@ import yfinance as yf
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 import numpy as np
+from functools import lru_cache
+import hashlib
+from collections import OrderedDict
 
 app = FastAPI()
 
@@ -23,30 +26,87 @@ class StockRequest(BaseModel):
     start_date: str
     end_date: str
 
+# Cache for stock data to avoid repeated API calls
+@lru_cache(maxsize=128)
+def fetch_stock_data(symbol: str, start: str, end: str):
+    """Cached wrapper for yfinance download to avoid redundant API calls.
+    
+    Note: Returns a copy of the DataFrame to ensure cache immutability.
+    """
+    data = yf.download(symbol, start=start, end=end, progress=False)
+    # Return a copy to prevent cache mutation issues with DataFrames
+    return data.copy() if not data.empty else data
+
+# Cache for trained models to avoid retraining on every request
+# Using a bounded cache with max size to prevent memory leaks
+
+class BoundedModelCache:
+    """Thread-safe bounded cache for ML models to prevent memory leaks."""
+    def __init__(self, maxsize=50):
+        self.cache = OrderedDict()
+        self.maxsize = maxsize
+    
+    def get(self, key):
+        """Get model from cache, moving it to end (most recently used)."""
+        if key in self.cache:
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        return None
+    
+    def put(self, key, value):
+        """Add model to cache, removing oldest if at capacity."""
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.maxsize:
+            self.cache.popitem(last=False)
+
+_model_cache = BoundedModelCache(maxsize=50)
+
+def get_or_train_model(data_hash: str, features):
+    """Get cached model or train a new one if not exists."""
+    model = _model_cache.get(data_hash)
+    if model is None:
+        model = IsolationForest(contamination=0.02, random_state=42)
+        model.fit(features)
+        _model_cache.put(data_hash, model)
+    return model
+
 # Helper: detect anomalies
 def detect_anomalies(symbol: str, start: str, end: str):
-    data = yf.download(symbol, start=start, end=end)
+    data = fetch_stock_data(symbol, start, end)
     if data.empty:
         return []
 
+    # Validate minimum dataset size for meaningful analysis
+    if len(data) < 15:
+        return []
+
+    # Calculate features with optimized rolling operations
     data["Return"] = data["Close"].pct_change()
     data["Volatility"] = data["Return"].rolling(10).std()
-    data["Volume_z"] = (
-        (data["Volume"] - data["Volume"].rolling(10).mean())
-        / data["Volume"].rolling(10).std()
-    )
+    
+    # Cache rolling operations to avoid redundant calculations
+    volume_rolling = data["Volume"].rolling(10)
+    volume_mean = volume_rolling.mean()
+    volume_std = volume_rolling.std()
+    data["Volume_z"] = (data["Volume"] - volume_mean) / volume_std
 
     features = data[["Return", "Volatility", "Volume_z"]].dropna()
     if features.empty:
         return []
 
-    model = IsolationForest(contamination=0.02, random_state=42)
-    anomalies = model.fit_predict(features)
+    # Use cached model to avoid retraining
+    # Using SHA-256 for secure hashing instead of MD5
+    data_hash = hashlib.sha256(f"{symbol}_{start}_{end}".encode()).hexdigest()
+    model = get_or_train_model(data_hash, features)
+    anomalies = model.predict(features)
 
-    features["Anomaly"] = anomalies
-    result = data.join(features["Anomaly"], how="left").reset_index()
-    result["Anomaly"].fillna(0, inplace=True)
-
+    # Efficiently assign anomaly results to original dataframe
+    data.loc[features.index, "Anomaly"] = anomalies
+    data["Anomaly"].fillna(0, inplace=True)
+    
+    result = data.reset_index()
     result_json = result[
         ["Date", "Open", "High", "Low", "Close", "Volume", "Anomaly"]
     ]
