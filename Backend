@@ -5,6 +5,8 @@ import yfinance as yf
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 import numpy as np
+from functools import lru_cache
+import hashlib
 
 app = FastAPI()
 
@@ -23,30 +25,58 @@ class StockRequest(BaseModel):
     start_date: str
     end_date: str
 
+# Cache for stock data to avoid repeated API calls
+@lru_cache(maxsize=128)
+def fetch_stock_data(symbol: str, start: str, end: str):
+    """Cached wrapper for yfinance download to avoid redundant API calls."""
+    data = yf.download(symbol, start=start, end=end, progress=False)
+    return data
+
+# Cache for trained models to avoid retraining on every request
+_model_cache = {}
+
+def get_or_train_model(data_hash: str, features):
+    """Get cached model or train a new one if not exists."""
+    if data_hash not in _model_cache:
+        model = IsolationForest(contamination=0.02, random_state=42)
+        model.fit(features)
+        _model_cache[data_hash] = model
+    return _model_cache[data_hash]
+
 # Helper: detect anomalies
 def detect_anomalies(symbol: str, start: str, end: str):
-    data = yf.download(symbol, start=start, end=end)
+    data = fetch_stock_data(symbol, start, end)
     if data.empty:
         return []
 
+    # Validate minimum dataset size for meaningful analysis
+    if len(data) < 15:
+        return []
+
+    # Calculate features with optimized rolling operations
     data["Return"] = data["Close"].pct_change()
     data["Volatility"] = data["Return"].rolling(10).std()
-    data["Volume_z"] = (
-        (data["Volume"] - data["Volume"].rolling(10).mean())
-        / data["Volume"].rolling(10).std()
-    )
+    
+    # Cache rolling operations to avoid redundant calculations
+    volume_rolling = data["Volume"].rolling(10)
+    volume_mean = volume_rolling.mean()
+    volume_std = volume_rolling.std()
+    data["Volume_z"] = (data["Volume"] - volume_mean) / volume_std
 
     features = data[["Return", "Volatility", "Volume_z"]].dropna()
     if features.empty:
         return []
 
-    model = IsolationForest(contamination=0.02, random_state=42)
-    anomalies = model.fit_predict(features)
+    # Use cached model to avoid retraining
+    data_hash = hashlib.md5(f"{symbol}_{start}_{end}".encode()).hexdigest()
+    model = get_or_train_model(data_hash, features)
+    anomalies = model.predict(features)
 
-    features["Anomaly"] = anomalies
-    result = data.join(features["Anomaly"], how="left").reset_index()
-    result["Anomaly"].fillna(0, inplace=True)
-
+    # Efficiently assign anomaly results to original dataframe
+    data.loc[features.index, "Anomaly"] = anomalies
+    data["Anomaly"].fillna(0, inplace=True)
+    
+    result = data.reset_index()
     result_json = result[
         ["Date", "Open", "High", "Low", "Close", "Volume", "Anomaly"]
     ]
