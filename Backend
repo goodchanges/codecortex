@@ -7,6 +7,7 @@ from sklearn.ensemble import IsolationForest
 import numpy as np
 from functools import lru_cache
 import hashlib
+from collections import OrderedDict
 
 app = FastAPI()
 
@@ -38,7 +39,6 @@ def fetch_stock_data(symbol: str, start: str, end: str):
 
 # Cache for trained models to avoid retraining on every request
 # Using a bounded cache with max size to prevent memory leaks
-from collections import OrderedDict
 
 class BoundedModelCache:
     """Thread-safe bounded cache for ML models to prevent memory leaks."""

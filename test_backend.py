@@ -12,6 +12,7 @@ def test_backend_code_structure():
     """Verify that performance optimizations are present in the code"""
     print("Testing backend code structure for performance optimizations...")
     
+    # Note: Backend file intentionally has no .py extension (original structure)
     backend_path = get_file_path('Backend')
     try:
         with open(backend_path, 'r') as f:
