@@ -59,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Identify anomaly points for visual marking
     // Performance optimization: Use Map for O(1) lookups instead of O(n²) find operation
+    // For datasets under ~100 points, the overhead is minimal. For 1000+ points, this is critical.
     const priceMap = new Map(priceData.map(d => [d.x.getTime(), d.y]));
     const anomalyMarkers = MOCK_DATA.reports
         .map(report => ({

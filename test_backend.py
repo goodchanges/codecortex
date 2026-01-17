@@ -36,10 +36,12 @@ def test_backend_code_structure():
     
     # Test 3: Check for model caching
     print("\n3. Checking for model caching...")
-    if '_model_cache = {}' in backend_code or '_model_cache={}' in backend_code:
+    if 'BoundedModelCache' in backend_code:
+        print("   ✅ BoundedModelCache class exists (prevents memory leaks)")
+    elif '_model_cache = {}' in backend_code or '_model_cache={}' in backend_code:
         print("   ✅ Model cache dictionary exists")
     else:
-        print("   ❌ Model cache dictionary missing")
+        print("   ❌ Model cache missing")
     
     if 'def get_or_train_model' in backend_code:
         print("   ✅ get_or_train_model function exists")
@@ -71,6 +73,15 @@ def test_backend_code_structure():
         print("   ⚠️  Duplicate rolling operations detected")
     else:
         print("   ✅ No duplicate rolling operations")
+    
+    # Test 7: Check for secure hashing
+    print("\n7. Checking for secure hashing...")
+    if 'sha256' in backend_code:
+        print("   ✅ Using SHA-256 for secure hashing")
+    elif 'md5' in backend_code.lower():
+        print("   ⚠️  Using MD5 (consider upgrading to SHA-256)")
+    else:
+        print("   ℹ️  Hash algorithm not identified")
     
     print("\n✅ Backend code structure validation completed!")
 
